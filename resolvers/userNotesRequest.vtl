@@ -1,0 +1,13 @@
+{
+    "version": "2017-02-28",
+    "operation": "Query",
+    "index": "userId",
+    "query": {
+        "expression": "usderId = :userId",
+        "expressionValues": {
+            ":userId": {
+                "S": "$context.source.id"
+            }
+        }
+    },
+}

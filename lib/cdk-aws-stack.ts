@@ -1,8 +1,7 @@
 import * as cdk from '@aws-cdk/core';
 import * as appsync from '@aws-cdk/aws-appsync';
 import * as ddb from '@aws-cdk/aws-dynamodb';
-import * as lambda from '@aws-cdk/aws-lambda';
-import * as path from "path";
+import {AttributeType} from '@aws-cdk/aws-dynamodb';
 
 export class CDKFlorentStack extends cdk.Stack {
     constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
@@ -34,28 +33,6 @@ export class CDKFlorentStack extends cdk.Stack {
             value: this.region
         });
         
-        
-        const notesLambda = new lambda.Function(this, "AppSyncNotesHandler", {
-            runtime: lambda.Runtime.NODEJS_14_X,
-            handler: 'main.handler',
-            code: lambda.Code.fromAsset(path.join(__dirname, 'resources')),
-            memorySize: 1024
-        });
-        
-        const lambdaDataSource = api.addLambdaDataSource('lambdaDataSource', notesLambda);
-        
-        
-        const resolvers = [
-            ["Query",    "getNoteById"],
-            ["Query",    "listNotes"],
-            ["Mutation", "createNote"],
-            ["Mutation",  "updateNote"],
-        ]
-        
-        for (let [typeName, fieldName] of resolvers) {
-           lambdaDataSource.createResolver({typeName, fieldName}) 
-        }
-        
         const notesTable = new ddb.Table(this, 'CDKNotesTableFlorent', {
             billingMode: ddb.BillingMode.PAY_PER_REQUEST,
             partitionKey: {
@@ -64,8 +41,78 @@ export class CDKFlorentStack extends cdk.Stack {
             },
         });
         
-        notesTable.grantFullAccess(notesLambda);
+        notesTable.addGlobalSecondaryIndex({
+            indexName: "userId",
+            partitionKey: {
+               type: AttributeType.STRING, 
+               name: "userId"
+            }
+        });
         
-        notesLambda.addEnvironment('NOTES_TABLE', notesTable.tableName);
+        const notesDataSource = api.addDynamoDbDataSource("DDBNotesFlorentDataSource", notesTable);
+        
+        notesDataSource.createResolver({
+            typeName: "Query",
+            fieldName: "listNotes",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/listNotesRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/simpleItemResponse.vtl"),
+        });
+        
+        
+        notesDataSource.createResolver({
+            typeName: "Mutation",
+            fieldName: "createNote",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/createNoteRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/simpleItemResponse.vtl"),
+        });
+        
+        notesDataSource.createResolver({
+            typeName: "Mutation",
+            fieldName: "deleteNote",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/deleteNoteRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/simpleItemResponse.vtl"),
+        });
+        
+        const usersTable = new ddb.Table(this, 'CDKUsersTableFlorent', {
+            billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+            partitionKey: {
+                name: 'id',
+                type: ddb.AttributeType.STRING,
+            },
+        });
+        
+        const usersDataSource = api.addDynamoDbDataSource("DDBUsersFlorentDataSource", usersTable);
+        usersTable.grantFullAccess(usersDataSource);
+        usersTable.grantFullAccess(notesDataSource);
+        notesTable.grantFullAccess(usersDataSource);
+        notesTable.grantFullAccess(notesDataSource);
+
+        usersDataSource.createResolver({
+            typeName: "Mutation",
+            fieldName: "createUser",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/createUserRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/simpleItemResponse.vtl"),
+        });
+        
+        usersDataSource.createResolver({
+            typeName: "Mutation",
+            fieldName: "deleteUser",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/deleteUserRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/simpleItemResponse.vtl"),
+        });
+        
+        usersDataSource.createResolver({
+            typeName: "Query",
+            fieldName: "listUsers",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/listUsersRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/listUsersResponse.vtl"),
+        });
+        
+        notesDataSource.createResolver({
+            typeName: "User",
+            fieldName: "notes",
+            requestMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/userNotesRequest.vtl"),
+            responseMappingTemplate: appsync.MappingTemplate.fromFile("resolvers/simpleItemResponse.vtl"),
+        })
     }
 }

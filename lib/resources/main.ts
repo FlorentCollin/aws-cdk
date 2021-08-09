@@ -126,7 +126,7 @@ exports.handler = async(event: AppSyncEvent) => {
         case "listNotes":
             return await listNotes();
         case "deleteNote":
-            return await deleteNote();
+            return await deleteNote(event.arguments.noteId);
         case "updateNote":
             return await updateNote(event.arguments.note);
     }

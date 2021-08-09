@@ -1,0 +1,15 @@
+{
+    "version" : "2017-02-28",
+    "operation" : "DeleteItem",
+    "key": {
+        "id": $util.dynamodb.toDynamoDBJson($ctx.arguments.noteId)
+    }
+    #if( $ctx.arguments.containsKey("expectedVersion") )
+        ,"condition" : {
+            "expression"       : "attribute_not_exists(id) OR version = :expectedVersion",
+            "expressionValues" : {
+                ":expectedVersion" : $util.dynamodb.toDynamoDBJson($ctx.arguments.expectedVersion)
+            }
+        }
+    #end
+}
