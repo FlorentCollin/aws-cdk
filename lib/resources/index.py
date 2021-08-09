@@ -1,9 +1,9 @@
-import json
 import urllib.parse
 import boto3
 
 print('Loading function')
 s3 = boto3.client('s3')
+
 
 def main(event, context):
     bucket = event['Records'][0]['s3']['bucket']['name']
@@ -16,4 +16,3 @@ def main(event, context):
         print(e)
         print(f'Error getting object {key} from bucket {bucket}')
         raise e
-

@@ -1,28 +1,71 @@
 import * as cdk from '@aws-cdk/core';
-import * as s3 from '@aws-cdk/aws-s3';
+import * as appsync from '@aws-cdk/aws-appsync';
+import * as ddb from '@aws-cdk/aws-dynamodb';
 import * as lambda from '@aws-cdk/aws-lambda';
-import {S3EventSource} from '@aws-cdk/aws-lambda-event-sources';
-import * as path from 'path';
+import * as path from "path";
 
 export class CDKFlorentStack extends cdk.Stack {
     constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
 
-        const bucket = new s3.Bucket(this, "cdk-florent-bucket-id");
-        const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
-
-        cfnBucket.addPropertyOverride("BucketEncryption.ServerSideEncryptionConfiguration",
-            [{ServerSideEncryptionByDefault: {SSEAlgorithm: "AES256"}}]);
-
-        const simple_lambda = new lambda.Function(this, 'cdk-florent-lambda', {
-            code: lambda.Code.fromAsset(path.join(__dirname, 'resources')),
-            handler: "index.main",
-            runtime: lambda.Runtime.PYTHON_3_8,
+        const api = new appsync.GraphqlApi(this, 'Api', {
+            name: "cdk-florent-api",
+            schema: appsync.Schema.fromAsset('schemas/schema.graphql'),
+            authorizationConfig: {
+                defaultAuthorization: {
+                    authorizationType: appsync.AuthorizationType.API_KEY,
+                    apiKeyConfig: {
+                        expires: cdk.Expiration.after(cdk.Duration.days(365))
+                    }
+                }
+            },
+            xrayEnabled: true,
         });
-        bucket.grantRead(simple_lambda);
+        
+        new cdk.CfnOutput(this, "GraphQLAPIURL", {
+            value: api.graphqlUrl
+        });
+        
+        new cdk.CfnOutput(this, "GraphQLAPIKey", {
+            value: api.apiKey || ''
+        });
 
-        simple_lambda.addEventSource(new S3EventSource(bucket, {
-            events: [s3.EventType.OBJECT_CREATED],
-        }));
+        new cdk.CfnOutput(this, "Stack Region", {
+            value: this.region
+        });
+        
+        
+        const notesLambda = new lambda.Function(this, "AppSyncNotesHandler", {
+            runtime: lambda.Runtime.NODEJS_14_X,
+            handler: 'main.handler',
+            code: lambda.Code.fromAsset(path.join(__dirname, 'resources')),
+            memorySize: 1024
+        });
+        
+        const lambdaDataSource = api.addLambdaDataSource('lambdaDataSource', notesLambda);
+        
+        
+        const resolvers = [
+            ["Query",    "getNoteById"],
+            ["Query",    "listNotes"],
+            ["Mutation", "createNote"],
+            ["Mutation",  "updateNote"],
+        ]
+        
+        for (let [typeName, fieldName] of resolvers) {
+           lambdaDataSource.createResolver({typeName, fieldName}) 
+        }
+        
+        const notesTable = new ddb.Table(this, 'CDKNotesTableFlorent', {
+            billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+            partitionKey: {
+               name: 'id',
+               type: ddb.AttributeType.STRING, 
+            },
+        });
+        
+        notesTable.grantFullAccess(notesLambda);
+        
+        notesLambda.addEnvironment('NOTES_TABLE', notesTable.tableName);
     }
 }
